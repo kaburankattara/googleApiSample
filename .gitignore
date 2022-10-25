@@ -1,0 +1,6 @@
+# デフォルトの無視ファイル
+/.gradle/
+/shelf/
+/.idea/
+.DS_Store
+/build/
