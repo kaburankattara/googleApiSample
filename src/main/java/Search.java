@@ -5,7 +5,6 @@ import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.gson.GsonFactory;
-// import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.ResourceId;
 import com.google.api.services.youtube.model.SearchListResponse;
@@ -16,52 +15,41 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Properties;
+import java.util.*;
 
 /**
  * 検索語に基づいてビデオのリストを出力します。
- *
- * Prints a list of videos based on a search term.
- *
- * @author Jeremy Walker
  */
 public class Search {
 
-    /** グローバル インスタンス プロパティのファイル名。 */
-    /** Global instance properties filename. */
+    /** プロパティのファイル名。 */
     private static String PROPERTIES_FILENAME = "youtube.properties";
 
-    /** HTTP トランスポートのグローバル インスタンス。 */
-    /** Global instance of the HTTP transport. */
+    /** HTTPトランスポート */
     private static final HttpTransport HTTP_TRANSPORT = new NetHttpTransport();
 
-    /** JSON ファクトリのグローバル インスタンス。 */
-    /** Global instance of the JSON factory. */
+    /** JSONファクトリ */
     private static final JsonFactory JSON_FACTORY = new GsonFactory();
 
-    /** 返される動画の最大数のグローバル インスタンス (50 = ページあたりの上限)。 */
-    /** Global instance of the max number of videos we want returned (50 = upper limit per page). */
+    /** HTTPリクエストの初期化クラス */
+    private static final HttpRequestInitializer HTTP_REQUEST_INITIALIZER = new HttpRequestInitializer() {
+        public void initialize(HttpRequest request) throws IOException {}
+    };
+
+    /** 返される動画の最大数 (50 = ページあたりの上限) */
     private static final long NUMBER_OF_VIDEOS_RETURNED = 25;
 
-    /** すべての API リクエストを行うための Youtube オブジェクトのグローバル インスタンス。 */
-    /** Global instance of Youtube object to make all API requests. */
+    /** すべてのAPIリクエストを行うためのYoutubeオブジェクト */
     private static YouTube youtube;
 
-
     /**
-     * YouTube オブジェクトを初期化して、YouTube で動画を検索します (Youtube.Search.List)。 プログラム
-     * 次に、各ビデオの名前とサムネイルを出力します (最初の 50 個のビデオのみ)。
-     *
-     * Initializes YouTube object to search for videos on YouTube (Youtube.Search.List). The program
-     * then prints the names and thumbnails of each of the videos (only first 50 videos).
+     * YouTubeオブジェクトで動画を検索します。
+     * 検索結果があれば、ビデオの名前とサムネイルを出力します。
      *
      * @param args command line args.
      */
     public static void main(String[] args) {
-        // Read the developer key from youtube.properties
+        // プロパティファイルを読みます。
         Properties properties = new Properties();
         try {
             InputStream in = Search.class.getResourceAsStream("/" + PROPERTIES_FILENAME);
@@ -74,62 +62,45 @@ public class Search {
         }
 
         try {
-            /*
-             * YouTube オブジェクトは、すべての API リクエストを行うために使用されます。 最後の引数は必須ですが、
-             * HttpRequest の初期化時に何も初期化する必要がないため、オーバーライドします。
-             * インターフェースを変更し、no-op 機能を提供します。
+            /**
+             * 1.Youtubeオブジェクトを生成します。
+             * 　オブジェクトの生成にはHTTPトランスポート、JSONファクトリが必要です。
+             * 　※HTTPリクエストの初期化クラスは必須ではありませんが、今回はサンプルを参考に指定しておきます。
              *
-             *  The YouTube object is used to make all API requests. The last argument is required, but
-             * because we don't need anything initialized when the HttpRequest is initialized, we override
-             * the interface and provide a no-op function.
+             * 2.続いてアプリケーション名を指定しておきます。
+             *   アプリケーション名を指定すると各リクエストのUserAgentヘッダーに使用されます。
+             *   指定していなければ、nullが設定されます。
              */
-            youtube = new YouTube.Builder(HTTP_TRANSPORT, JSON_FACTORY, new HttpRequestInitializer() {
-                public void initialize(HttpRequest request) throws IOException {}
-            }).setApplicationName("youtube-cmdline-search-sample").build();
+            youtube = new YouTube.Builder(HTTP_TRANSPORT, JSON_FACTORY, HTTP_REQUEST_INITIALIZER)
+                    .setApplicationName("youtube-cmdline-search-sample").build();
 
-            // ユーザーからクエリ用語を取得します
-            // Get query term from user.
-            String queryTerm = getInputQuery();
-
-            List<String> part = new ArrayList<>();
-            part.add("id");
-            part.add("snippet");
+            List<String> part = new ArrayList<>(Arrays.asList("id", "snippet"));
             YouTube.Search.List search = youtube.search().list(part);
-            /*
-             * Google Developer Console から API キーを設定することが重要です。
-             * 認証されていないリクエスト (次のリンクの [認証情報] タブにあります:
-             * console.developers.google.com/)。 これは良い習慣であり、クォータを増やしました。
-             *
-             * It is important to set your API key from the Google Developer Console for
-             * non-authenticated requests (found under the Credentials tab at this link:
-             * console.developers.google.com/). This is good practice and increased your quota.
-             */
+
+            // プロパティファイルに定義したAPIキーを設定する
             String apiKey = properties.getProperty("youtube.apikey");
             search.setKey(apiKey);
-            search.setQ(queryTerm);
-            /*
-             * 動画のみを検索しています (プレイリストやチャンネルは検索していません)。 もし私たちが探していたら
-             * さらに、"video,playlist,channel" のような文字列として追加します。
-             *
-             *  We are only searching for videos (not playlists or channels). If we were searching for
-             * more, we would add them as a string like this: "video,playlist,channel".
-             */
-//            List<String> type = new ArrayList<>();
-//            type.add("video");
-//            type.add("comment");
-//            search.setType(type);
-            /*
-             * このメソッドは、返される情報を必要なフィールドのみに減らし、呼び出しをより効率的にします。
-             *
-             *  This method reduces the info returned to only the fields we need and makes calls more
-             * efficient.
-             */
-//            search.setFields("items(id/kind,id/videoId,snippet/title,snippet/thumbnails/default/url)");
-            search.setMaxResults(NUMBER_OF_VIDEOS_RETURNED);
-            SearchListResponse searchResponse = search.execute();
 
+            // ユーザーから検索キーワードを受け取り、設定します。
+            String queryTerm = getInputQuery();
+            search.setQ(queryTerm);
+
+            // 動画のみを検索対象にします
+            // もし、プレイリストやチャンネルも検索対象とする場合は「playlist」、「channel」なども追加します
+            search.setType(new ArrayList<>(Arrays.asList("video")));
+
+            // 返される情報を必要なフィールドのみに減らします
+            // ※呼び出しをより効率的にする効果があるようです
+            search.setFields("items(id/kind,id/videoId,snippet/title,snippet/thumbnails/default/url)");
+
+            // 検索結果として取得してくる件数を指定します
+            search.setMaxResults(NUMBER_OF_VIDEOS_RETURNED);
+
+            // 検索を実行し、結果を取得します。
+            SearchListResponse searchResponse = search.execute();
             List<SearchResult> searchResultList = searchResponse.getItems();
 
+            // 検索結果があれば、内容を出力します。
             if (searchResultList != null) {
                 prettyPrint(searchResultList.iterator(), queryTerm);
             }
@@ -144,9 +115,7 @@ public class Search {
     }
 
     /*
-     * ターミナル経由でユーザーからのクエリ ターム (文字列) を返します。
-     *
-     * Returns a query term (String) from user via the terminal.
+     * ターミナル経由でユーザーからのクエリターム (文字列) を返します。
      */
     private static String getInputQuery() throws IOException {
 
@@ -158,20 +127,16 @@ public class Search {
 
         if (inputQuery.length() < 1) {
             // 何も入力しない場合は、デフォルトで「YouTube Developers Live」になります。
-            // If nothing is entered, defaults to "YouTube Developers Live."
             inputQuery = "YouTube Developers Live";
         }
         return inputQuery;
     }
 
     /*
-     * Iterator 内のすべての SearchResults を出力します。 印刷された各行には、タイトル、ID、およびサムネイルが含まれます。
-     *
-     * Prints out all SearchResults in the Iterator. Each printed line includes title, id, and
-     * thumbnail.
+     * Iterator 内のすべての SearchResults を出力します。
+     * 印刷された各行には、タイトル、ID、およびサムネイルが含まれます。
      *
      * @param iteratorSearchResults Iterator of SearchResults to print
-     *
      * @param query Search query (String)
      */
     private static void prettyPrint(Iterator<SearchResult> iteratorSearchResults, String query) {
@@ -190,12 +155,10 @@ public class Search {
             SearchResult singleVideo = iteratorSearchResults.next();
             ResourceId rId = singleVideo.getId();
 
-            // 種類がビデオであることを再確認します。
-            // Double checks the kind is video.
+            // APIリソースのタイプがビデオであれば、内容を出力します。
             if (rId.getKind().equals("youtube#video")) {
                 Thumbnail thumbnail = (Thumbnail)singleVideo.getSnippet().getThumbnails().get("default");
 
-                System.out.println(" channel Id:" + singleVideo.getSnippet().getChannelId());
                 System.out.println(" Video Id:" + rId.getVideoId());
                 System.out.println(" Title: " + singleVideo.getSnippet().getTitle());
                 System.out.println(" Thumbnail: " + thumbnail.getUrl());
